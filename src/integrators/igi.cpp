@@ -187,6 +187,7 @@ Spectrum IGIIntegrator::Li(const Scene *scene, const Renderer *renderer,
         if (!scene->IntersectP(connectRay))
             L += Llight;
     }
+	
     if (ray.depth < maxSpecularDepth) {
         // Do bias compensation for bounding geometry term
         int nSamples = (ray.depth == 0) ? nGatherSamples : 1;
@@ -216,6 +217,7 @@ Spectrum IGIIntegrator::Li(const Scene *scene, const Renderer *renderer,
             }
         }
     }
+	
     if (ray.depth + 1 < maxSpecularDepth) {
         Vector wi;
         // Trace rays for specular reflection and refraction
@@ -234,7 +236,7 @@ IGIIntegrator *CreateIGISurfaceIntegrator(const ParamSet &params) {
     int nLightSets = params.FindOneInt("nsets", 4);
     float rrThresh = params.FindOneFloat("rrthreshold", .0001f);
     int maxDepth = params.FindOneInt("maxdepth", 5);
-    float glimit = params.FindOneFloat("glimit", 10.f);
+    float glimit = params.FindOneFloat("glimit", 0.1f);
     int gatherSamples = params.FindOneInt("gathersamples", 16);
     return new IGIIntegrator(nLightPaths, nLightSets, rrThresh,
                              maxDepth, glimit, gatherSamples);
