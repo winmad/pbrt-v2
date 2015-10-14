@@ -29,6 +29,10 @@
 
  */
 
+/*
+	Modified by Lifan: add lightcuts
+*/
+
 #if defined(_MSC_VER)
 #pragma once
 #endif
@@ -39,6 +43,7 @@
 // integrators/igi.h*
 #include "pbrt.h"
 #include "integrator.h"
+#include "../core/lighttree.h"
 
 // IGIIntegrator Local Structures
 struct VirtualLight {
@@ -64,7 +69,7 @@ public:
         const Sample *sample, RNG &rng, MemoryArena &arena) const;
     void RequestSamples(Sampler *sampler, Sample *sample, const Scene *scene);
     void Preprocess(const Scene *, const Camera *, const Renderer *);
-    IGIIntegrator(uint32_t nl, uint32_t ns, float rrt, int maxd, float gl, int ng) {
+    IGIIntegrator(uint32_t nl, uint32_t ns, float rrt, int maxd, float gl, int ng, bool _useLightcuts) {
         nLightPaths = RoundUpPow2(nl);
         nLightSets = RoundUpPow2(ns);
         rrThreshold = rrt;
@@ -72,8 +77,10 @@ public:
         virtualLights.resize(nLightSets);
         gLimit = gl;
         nGatherSamples = ng;
+		useLightcuts = _useLightcuts;
         lightSampleOffsets = NULL;
         bsdfSampleOffsets = NULL;
+		pointLightTree = NULL;
     }
 private:
     // IGIIntegrator Private Data
@@ -87,8 +94,12 @@ private:
     float rrThreshold;
     int maxSpecularDepth;
     int vlSetOffset;
+	bool useLightcuts;
     BSDFSampleOffsets gatherSampleOffset;
     vector<vector<VirtualLight> > virtualLights;
+
+	PointLightTree *pointLightTree;
+	void testPointLightTree();
 };
 
 

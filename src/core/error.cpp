@@ -157,3 +157,27 @@ void Severe(const char *format, ...) {
 }
 
 
+bool restartLog(string filename) {
+	strcpy(logFilename, filename.c_str());
+	FILE *fp = fopen(logFilename, "w");
+	if (!fp) {
+		fprintf(stderr, "ERROR: could not open LOG_FILE %s\n", logFilename);
+		return false;
+	}
+	fclose(fp);
+	return true;
+}
+
+bool Log(const char *format, ...) {
+	va_list args;
+	FILE *fp = fopen(logFilename, "a");
+	if (!fp) {
+		fprintf(stderr, "ERROR: could not open LOG_FILE %s\n", logFilename);
+		return false;
+	}
+	va_start(args, format);
+	vfprintf(fp, format, args);
+	va_end(args);
+	fclose(fp);
+	return true;
+}

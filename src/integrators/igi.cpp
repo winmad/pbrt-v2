@@ -29,6 +29,9 @@
 
  */
 
+/*
+	Modified by Lifan: add lightcuts
+*/
 
 // integrators/igi.cpp*
 #include "stdafx.h"
@@ -40,11 +43,13 @@
 #include "intersection.h"
 #include "paramset.h"
 #include "camera.h"
+#include <queue>
 
 // IGIIntegrator Method Definitions
 IGIIntegrator::~IGIIntegrator() {
     delete[] lightSampleOffsets;
     delete[] bsdfSampleOffsets;
+	delete pointLightTree;
 }
 
 
@@ -67,6 +72,38 @@ void IGIIntegrator::RequestSamples(Sampler *sampler, Sample *sample,
     gatherSampleOffset = BSDFSampleOffsets(nGatherSamples, sample);
 }
 
+void IGIIntegrator::testPointLightTree() {
+	vector<PointLightNodeData> data;
+	PointLightNodeData d;
+	d.lightPos = Point(0, 0, 0);
+	d.Intensity = Spectrum(100);
+	data.push_back(d);
+	d.lightPos = Point(1, 0, 0);
+	d.Intensity = Spectrum(1);
+	data.push_back(d);
+	d.lightPos = Point(2, 0, 0);
+	data.push_back(d);
+	d.lightPos = Point(-1, 0, 0);
+	data.push_back(d);
+	d.lightPos = Point(-2, 0, 0);
+	data.push_back(d);
+
+	pointLightTree = new PointLightTree(data);
+
+	std::queue<int> q;
+	q.push(0);
+	while (!q.empty()) {
+		int rt = q.front();
+		q.pop();
+		PointLightNode *node = &(pointLightTree->nodes[rt]);
+		PointLightNodeData *nodeData = &(pointLightTree->nodeData[rt]);
+		if (node->hasLeftChild) q.push(rt + 1);
+		if (node->rightChild < pointLightTree->nextFreeNode) q.push(node->rightChild);
+		Log("======= light cluster %d =======\n", rt);
+		Log("pos = (%.6f, %.6f, %.6f)\n", nodeData->lightPos.x, nodeData->lightPos.y, nodeData->lightPos.z);
+		Log("intensity = (%.6f, %.6f, %.6f)\n", nodeData->Intensity.x(0), nodeData->Intensity.x(1), nodeData->Intensity.x(2));
+	}
+}
 
 void IGIIntegrator::Preprocess(const Scene *scene, const Camera *camera,
                                const Renderer *renderer) {
@@ -139,6 +176,24 @@ void IGIIntegrator::Preprocess(const Scene *scene, const Camera *camera,
             arena.FreeAll();
         }
     }
+
+	if (useLightcuts) {
+		Warning("use lightcuts!\n");
+		//testPointLightTree();
+
+		// Build light tree
+		vector<PointLightNodeData> data;
+		PointLightNodeData d;
+		for (uint32_t s = 0; s < nLightSets; ++s) {
+			for (uint32_t i = 0; i < virtualLights[s].size(); i++) {
+
+			}
+		}
+	}
+	else {
+		Warning("not use lightcuts!\n");
+	}
+
     delete lightDistribution;
 }
 
@@ -238,8 +293,9 @@ IGIIntegrator *CreateIGISurfaceIntegrator(const ParamSet &params) {
     int maxDepth = params.FindOneInt("maxdepth", 5);
     float glimit = params.FindOneFloat("glimit", 0.1f);
     int gatherSamples = params.FindOneInt("gathersamples", 16);
+	bool useLightcuts = params.FindOneBool("lightcuts", true);
     return new IGIIntegrator(nLightPaths, nLightSets, rrThresh,
-                             maxDepth, glimit, gatherSamples);
+                             maxDepth, glimit, gatherSamples, useLightcuts);
 }
 
 

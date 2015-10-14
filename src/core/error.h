@@ -29,6 +29,10 @@
 
  */
 
+/*
+	Modified by Lifan: add file debug output
+*/
+
 #if defined(_MSC_VER)
 #pragma once
 #endif
@@ -51,5 +55,9 @@ void Info(const char *, ...) PRINTF_FUNC;
 void Warning(const char *, ...) PRINTF_FUNC;
 void Error(const char *, ...) PRINTF_FUNC;
 void Severe(const char *, ...) PRINTF_FUNC;
+
+static char logFilename[128];
+bool restartLog(string filename);
+bool Log(const char *, ...);
 
 #endif // PBRT_CORE_ERROR_H

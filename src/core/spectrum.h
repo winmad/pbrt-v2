@@ -425,6 +425,9 @@ public:
         const float YWeight[3] = { 0.212671f, 0.715160f, 0.072169f };
         return YWeight[0] * c[0] + YWeight[1] * c[1] + YWeight[2] * c[2];
     }
+	float x(const int k) const {
+		return c[k];
+	}
     static RGBSpectrum FromSampled(const float *lambda, const float *v,
                                    int n) {
         // Sort samples if unordered, use sorted for returned spectrum

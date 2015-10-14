@@ -42,6 +42,7 @@ int main(int argc, char *argv[]) {
     Options options;
     vector<string> filenames;
     // Process command-line arguments
+	restartLog("debug.txt");
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--ncores")) options.nCores = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--outfile")) options.imageFile = argv[++i];
