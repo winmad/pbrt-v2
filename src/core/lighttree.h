@@ -1,6 +1,6 @@
 /*
 	Created by Lifan: adapt from kdtree.h
-	*/
+*/
 
 #if defined(_MSC_VER)
 #pragma once
@@ -45,8 +45,31 @@ struct PointLightNodeData {
 	Point lightPos;
 	Normal lightN;
 	Spectrum Intensity;
+	float rayEpsilon;
 	
 	BBox bound;
+};
+
+
+struct CutNodeData {
+	// index of light tree node
+	int lightIdx;
+	// maximum error bound of the node
+	Spectrum errBound;
+	float errBoundValue;
+
+	Spectrum contrib;
+
+	CutNodeData() {}
+	CutNodeData(Spectrum _err, Spectrum _contrib, int _idx) : lightIdx(_idx), 
+			errBound(_err), contrib(_contrib) {
+		errBoundValue = errBound.y();
+	}
+
+	bool operator <(const CutNodeData &d) const {
+		if (errBoundValue == d.errBoundValue) return lightIdx > d.lightIdx;
+		else return errBoundValue < d.errBoundValue;
+	}
 };
 
 
@@ -61,12 +84,21 @@ public:
 	void recursiveBuild(uint32_t nodeNum, int start, int end,
 		const PointLightNodeData **buildNodes);
 
+	Spectrum refineLightcuts(const Scene *scene,
+		const Renderer *renderer, MemoryArena &arena, 
+		const RayDifferential &ray, const Intersection &isect,
+		RNG &rng, const Point &p, const Normal &n, const Vector &wo, 
+		BSDF *bsdf, float gLimit, float rrThreshold);
+
 	void test();
 
 	PointLightNode *nodes;
 	PointLightNodeData *nodeData;
 	uint32_t nNodes, nextFreeNode;
 	RNG rng;
+	
+	int MAX_CUT_SIZE;
+	float MAX_ERROR_RATIO;
 };
 
 
@@ -79,5 +111,13 @@ struct ComparePointLightNode {
 	}
 };
 
+Spectrum ErrorBound(const Point &p, const Normal &n, const Vector &wo,
+	BSDF *bsdf, const PointLightNodeData &vl);
+
+Spectrum EstimateNodeIllumination(const Scene *scene,
+	const Renderer *renderer, MemoryArena &arena,
+	const RayDifferential &ray, const Intersection &isect,
+	RNG &rng, const Point &p, const Normal &n, const Vector &wo,
+	BSDF *bsdf, float gLimit, float rrThreshold, const PointLightNodeData &vl);
 
 #endif

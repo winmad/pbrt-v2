@@ -69,7 +69,8 @@ public:
         const Sample *sample, RNG &rng, MemoryArena &arena) const;
     void RequestSamples(Sampler *sampler, Sample *sample, const Scene *scene);
     void Preprocess(const Scene *, const Camera *, const Renderer *);
-    IGIIntegrator(uint32_t nl, uint32_t ns, float rrt, int maxd, float gl, int ng, bool _useLightcuts) {
+    IGIIntegrator(uint32_t nl, uint32_t ns, float rrt, int maxd, float gl, int ng, 
+	bool _useLightcuts, uint32_t _nRealLights) {
         nLightPaths = RoundUpPow2(nl);
         nLightSets = RoundUpPow2(ns);
         rrThreshold = rrt;
@@ -78,6 +79,7 @@ public:
         gLimit = gl;
         nGatherSamples = ng;
 		useLightcuts = _useLightcuts;
+		nRealLights = _nRealLights;
         lightSampleOffsets = NULL;
         bsdfSampleOffsets = NULL;
 		pointLightTree = NULL;
@@ -98,6 +100,8 @@ private:
     BSDFSampleOffsets gatherSampleOffset;
     vector<vector<VirtualLight> > virtualLights;
 
+	uint32_t nRealLights, nVirtualLights;
+	vector<PointLightNodeData> data;
 	PointLightTree *pointLightTree;
 	void testPointLightTree();
 };

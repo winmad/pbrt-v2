@@ -31,6 +31,12 @@
 
 /*
 	Modified by Lifan: add lightcuts
+
+	Note that all lights ("point" lights sampled from area light sources and virtual lights) are not POINT LIGHTS!
+	They are all associated with a cosine term AbsCos(wi, lightN)
+	Only support diffuse area light sources
+
+	Only support Lambertian BRDF
 */
 
 // integrators/igi.cpp*
@@ -182,13 +188,77 @@ void IGIIntegrator::Preprocess(const Scene *scene, const Camera *camera,
 		//testPointLightTree();
 
 		// Build light tree
-		vector<PointLightNodeData> data;
+		nVirtualLights = 0;
+		for (uint32_t s = 0; s < nLightSets; s++) {
+			nVirtualLights += virtualLights[s].size();
+		}
+		data.resize(nRealLights + nVirtualLights);
 		PointLightNodeData d;
+		
+		// Sampling light sources
+		lightNum.resize(nRealLights);
+		lightSampPos.resize(2 * nRealLights);
+		lightSampComp.resize(nRealLights);
+		lightSampDir.resize(2 * nRealLights);
+		LDShuffleScrambled1D(nRealLights, 1, &lightNum[0], rng);
+		LDShuffleScrambled2D(nRealLights, 1, &lightSampPos[0], rng);
+		LDShuffleScrambled1D(nRealLights, 1, &lightSampComp[0], rng);
+		LDShuffleScrambled2D(nRealLights, 1, &lightSampDir[0], rng);
+
+		for (uint32_t i = 0; i < nRealLights; i++) {
+			float lightPdf;
+			int ln = lightDistribution->SampleDiscrete(lightNum[i], &lightPdf);
+			Light *light = scene->lights[ln];
+
+			RayDifferential ray;
+			float pdf;
+			LightSample ls(lightSampPos[2 * i], lightSampPos[2 * i + 1],
+				lightSampComp[i]);
+			Normal Nl;
+			Spectrum alpha = light->Sample_L(scene, ls, lightSampDir[2 * i],
+				lightSampDir[2 * i + 1],
+				camera->shutterOpen, &ray, &Nl, &pdf);
+			if (pdf == 0.f || alpha.IsBlack()) continue;
+
+			d.lightPos = ray.o;
+			d.lightN = Nl;
+			d.Intensity = alpha * (INV_TWOPI / (pdf * lightPdf * nRealLights));
+			d.rayEpsilon = 1e-3;
+			data[i] = d;
+		}
+
+		// Add virtual lights
+		int cnt = 0;
 		for (uint32_t s = 0; s < nLightSets; ++s) {
 			for (uint32_t i = 0; i < virtualLights[s].size(); i++) {
-
+				d.lightPos = virtualLights[s][i].p;
+				d.lightN = virtualLights[s][i].n;
+				d.rayEpsilon = virtualLights[s][i].rayEpsilon;
+				d.Intensity = virtualLights[s][i].pathContrib / (nLightPaths * nLightSets);
+				data[nRealLights + cnt] = d;
+				cnt++;
 			}
 		}
+
+		pointLightTree = new PointLightTree(data);
+		Warning("Light tree builded!\n");
+		
+		/*
+		std::queue<int> q;
+		q.push(0);
+		while (!q.empty()) {
+			int rt = q.front();
+			q.pop();
+			PointLightNode *node = &(pointLightTree->nodes[rt]);
+			PointLightNodeData *nodeData = &(pointLightTree->nodeData[rt]);
+			if (node->hasLeftChild) q.push(rt + 1);
+			if (node->rightChild < pointLightTree->nextFreeNode) q.push(node->rightChild);
+			Log("======= light cluster %d =======\n", rt);
+			Log("pos = (%.6f, %.6f, %.6f)\n", nodeData->lightPos.x, nodeData->lightPos.y, nodeData->lightPos.z);
+			Log("intensity = (%.6f, %.6f, %.6f)\n", nodeData->Intensity.x(0), nodeData->Intensity.x(1), nodeData->Intensity.x(2));
+		}
+		Warning("Debug output ended!\n");
+		*/
 	}
 	else {
 		Warning("not use lightcuts!\n");
@@ -210,68 +280,104 @@ Spectrum IGIIntegrator::Li(const Scene *scene, const Renderer *renderer,
     BSDF *bsdf = isect.GetBSDF(ray, arena);
     const Point &p = bsdf->dgShading.p;
     const Normal &n = bsdf->dgShading.nn;
-    L += UniformSampleAllLights(scene, renderer, arena, p, n,
-                    wo, isect.rayEpsilon, ray.time, bsdf, sample, rng,
-                    lightSampleOffsets, bsdfSampleOffsets);
-    // Compute indirect illumination with virtual lights
-    uint32_t lSet = min(uint32_t(sample->oneD[vlSetOffset][0] * nLightSets),
-                        nLightSets-1);
-    for (uint32_t i = 0; i < virtualLights[lSet].size(); ++i) {
-        const VirtualLight &vl = virtualLights[lSet][i];
-        // Compute virtual light's tentative contribution _Llight_
-        float d2 = DistanceSquared(p, vl.p);
-        Vector wi = Normalize(vl.p - p);
-        float G = AbsDot(wi, n) * AbsDot(wi, vl.n) / d2;
-        G = min(G, gLimit);
-        Spectrum f = bsdf->f(wo, wi);
-        if (G == 0.f || f.IsBlack()) continue;
-        Spectrum Llight = f * G * vl.pathContrib / nLightPaths;
-        RayDifferential connectRay(p, wi, ray, isect.rayEpsilon,
-                                   sqrtf(d2) * (1.f - vl.rayEpsilon));
-        Llight *= renderer->Transmittance(scene, connectRay, NULL, rng, arena);
+	if (useLightcuts) {
+		L += pointLightTree->refineLightcuts(scene, renderer, arena, 
+			ray, isect, rng, p, n, wo, bsdf, gLimit, rrThreshold);
+		/*
+		// naive
+		for (uint32_t i = 0; i < data.size(); i++) {
+			const PointLightNodeData &vl = data[i];
+			float d2 = DistanceSquared(p, vl.lightPos);
+			Vector wi = Normalize(vl.lightPos - p);
+			float G = AbsDot(wi, n) * AbsDot(wi, vl.lightN) / d2;
+			//float G = AbsDot(wi, n) * ClampDot(-wi, vl.lightN) / d2;
+			G = min(G, gLimit);
+			Spectrum f = bsdf->f(wo, wi);
+			if (G == 0.f || f.IsBlack()) continue;
+			Spectrum Llight = f * G * vl.Intensity;
+			RayDifferential connectRay(p, wi, ray, isect.rayEpsilon,
+				sqrtf(d2) * (1.f - vl.rayEpsilon));
+			Llight *= renderer->Transmittance(scene, connectRay, NULL, rng, arena);
 
-        // Possibly skip virtual light shadow ray with Russian roulette
-        if (Llight.y() < rrThreshold) {
-            float continueProbability = .1f;
-            if (rng.RandomFloat() > continueProbability)
-                continue;
-            Llight /= continueProbability;
-        }
+			// Possibly skip virtual light shadow ray with Russian roulette
+			if (Llight.y() < rrThreshold) {
+				float continueProbability = .1f;
+				if (rng.RandomFloat() > continueProbability)
+					continue;
+				Llight /= continueProbability;
+			}
 
-        // Add contribution from _VirtualLight_ _vl_
-        if (!scene->IntersectP(connectRay))
-            L += Llight;
-    }
-	
-    if (ray.depth < maxSpecularDepth) {
-        // Do bias compensation for bounding geometry term
-        int nSamples = (ray.depth == 0) ? nGatherSamples : 1;
-        for (int i = 0; i < nSamples; ++i) {
-            Vector wi;
-            float pdf;
-            BSDFSample bsdfSample = (ray.depth == 0) ?
-                BSDFSample(sample, gatherSampleOffset, i) : BSDFSample(rng);
-            Spectrum f = bsdf->Sample_f(wo, &wi, bsdfSample,
-                                        &pdf, BxDFType(BSDF_ALL & ~BSDF_SPECULAR));
-            if (!f.IsBlack() && pdf > 0.f) {
-                // Trace ray for bias compensation gather sample
-                float maxDist = sqrtf(AbsDot(wi, n) / gLimit);
-                RayDifferential gatherRay(p, wi, ray, isect.rayEpsilon, maxDist);
-                Intersection gatherIsect;
-                Spectrum Li = renderer->Li(scene, gatherRay, sample, rng, arena,
-                                           &gatherIsect);
-                if (Li.IsBlack()) continue;
+			// Add contribution from _VirtualLight_ _vl_
+			if (!scene->IntersectP(connectRay))
+				L += Llight;
+		}
+		*/
+	}
+	else {
+		L += UniformSampleAllLights(scene, renderer, arena, p, n,
+			wo, isect.rayEpsilon, ray.time, bsdf, sample, rng,
+			lightSampleOffsets, bsdfSampleOffsets);
 
-                // Add bias compensation ray contribution to radiance sum
-                float Ggather = AbsDot(wi, n) * AbsDot(-wi, gatherIsect.dg.nn) /
-                    DistanceSquared(p, gatherIsect.dg.p);
-                if (Ggather - gLimit > 0.f && !isinf(Ggather)) {
-                    float gs = (Ggather - gLimit) / Ggather;
-                    L += f * Li * (AbsDot(wi, n) * gs / (nSamples * pdf));
-                }
-            }
-        }
-    }
+		// Compute indirect illumination with virtual lights
+		uint32_t lSet = min(uint32_t(sample->oneD[vlSetOffset][0] * nLightSets),
+			nLightSets - 1);
+		for (uint32_t i = 0; i < virtualLights[lSet].size(); ++i) {
+			const VirtualLight &vl = virtualLights[lSet][i];
+			// Compute virtual light's tentative contribution _Llight_
+			float d2 = DistanceSquared(p, vl.p);
+			Vector wi = Normalize(vl.p - p);
+			float G = AbsDot(wi, n) * AbsDot(-wi, vl.n) / d2;
+			G = min(G, gLimit);
+			Spectrum f = bsdf->f(wo, wi);
+			if (G == 0.f || f.IsBlack()) continue;
+			Spectrum Llight = f * G * vl.pathContrib / nLightPaths;
+			RayDifferential connectRay(p, wi, ray, isect.rayEpsilon,
+				sqrtf(d2) * (1.f - vl.rayEpsilon));
+			Llight *= renderer->Transmittance(scene, connectRay, NULL, rng, arena);
+			
+			// Possibly skip virtual light shadow ray with Russian roulette
+			if (Llight.y() < rrThreshold) {
+				float continueProbability = .1f;
+				if (rng.RandomFloat() > continueProbability)
+					continue;
+				Llight /= continueProbability;
+			}
+
+			// Add contribution from _VirtualLight_ _vl_
+			if (!scene->IntersectP(connectRay))
+				L += Llight;
+		}
+
+		if (ray.depth < maxSpecularDepth) {
+			// Do bias compensation for bounding geometry term
+			int nSamples = (ray.depth == 0) ? nGatherSamples : 1;
+			for (int i = 0; i < nSamples; ++i) {
+				Vector wi;
+				float pdf;
+				BSDFSample bsdfSample = (ray.depth == 0) ?
+					BSDFSample(sample, gatherSampleOffset, i) : BSDFSample(rng);
+				Spectrum f = bsdf->Sample_f(wo, &wi, bsdfSample,
+					&pdf, BxDFType(BSDF_ALL & ~BSDF_SPECULAR));
+				if (!f.IsBlack() && pdf > 0.f) {
+					// Trace ray for bias compensation gather sample
+					float maxDist = sqrtf(AbsDot(wi, n) / gLimit);
+					RayDifferential gatherRay(p, wi, ray, isect.rayEpsilon, maxDist);
+					Intersection gatherIsect;
+					Spectrum Li = renderer->Li(scene, gatherRay, sample, rng, arena,
+						&gatherIsect);
+					if (Li.IsBlack()) continue;
+
+					// Add bias compensation ray contribution to radiance sum
+					float Ggather = AbsDot(wi, n) * AbsDot(-wi, gatherIsect.dg.nn) /
+						DistanceSquared(p, gatherIsect.dg.p);
+					if (Ggather - gLimit > 0.f && !isinf(Ggather)) {
+						float gs = (Ggather - gLimit) / Ggather;
+						L += f * Li * (AbsDot(wi, n) * gs / (nSamples * pdf));
+					}
+				}
+			}
+		}
+	}
 	
     if (ray.depth + 1 < maxSpecularDepth) {
         Vector wi;
@@ -293,9 +399,11 @@ IGIIntegrator *CreateIGISurfaceIntegrator(const ParamSet &params) {
     int maxDepth = params.FindOneInt("maxdepth", 5);
     float glimit = params.FindOneFloat("glimit", 0.1f);
     int gatherSamples = params.FindOneInt("gathersamples", 16);
-	bool useLightcuts = params.FindOneBool("lightcuts", true);
+	bool useLightcuts = params.FindOneBool("lightcuts", false);
+	int nRealLights = params.FindOneInt("nRealLights", 256);
+
     return new IGIIntegrator(nLightPaths, nLightSets, rrThresh,
-                             maxDepth, glimit, gatherSamples, useLightcuts);
+                             maxDepth, glimit, gatherSamples, useLightcuts, nRealLights);
 }
 
 

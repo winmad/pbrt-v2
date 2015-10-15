@@ -586,6 +586,24 @@ inline float AbsDot(const Normal &n1, const Normal &n2) {
 }
 
 
+inline float ClampDot(const Normal &n1, const Vector &v2) {
+	Assert(!n1.HasNaNs() && !v2.HasNaNs());
+	return Clamp(n1.x * v2.x + n1.y * v2.y + n1.z * v2.z, 0.f, 1.f);
+}
+
+
+inline float ClampDot(const Vector &v1, const Normal &n2) {
+	Assert(!v1.HasNaNs() && !n2.HasNaNs());
+	return Clamp(v1.x * n2.x + v1.y * n2.y + v1.z * n2.z, 0.f, 1.f);
+}
+
+
+inline float ClampDot(const Normal &n1, const Normal &n2) {
+	Assert(!n1.HasNaNs() && !n2.HasNaNs());
+	return Clamp(n1.x * n2.x + n1.y * n2.y + n1.z * n2.z, 0.f, 1.f);
+}
+
+
 inline Normal Faceforward(const Normal &n, const Vector &v) {
     return (Dot(n, v) < 0.f) ? -n : n;
 }
