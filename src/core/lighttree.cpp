@@ -14,8 +14,8 @@ PointLightTree::PointLightTree(const vector<PointLightNodeData> &d) {
 	recursiveBuild(0, 0, nNodes, &buildNodes[0]);
 
 	// Set parameters
-	MAX_CUT_SIZE = 1000;
-	MAX_ERROR_RATIO = 0.005f;
+	MAX_CUT_SIZE = 300;
+	MAX_ERROR_RATIO = 0.01f;
 }
 
 
@@ -107,12 +107,14 @@ Spectrum EstimateNodeIllumination(const Scene *scene,
 	Llight *= renderer->Transmittance(scene, connectRay, NULL, rng, arena);
 
 	// Possibly skip virtual light shadow ray with Russian roulette
+	/*
 	if (Llight.y() < rrThreshold) {
 		float continueProbability = .1f;
 		if (rng.RandomFloat() > continueProbability)
 			return Spectrum(0.f);
 		Llight /= continueProbability;
 	}
+	*/
 
 	// Add contribution from _VirtualLight_ _vl_
 	if (!scene->IntersectP(connectRay))
@@ -147,8 +149,8 @@ Spectrum ErrorBound(const Point &p, const Normal &n, const Vector &wo,
 	// cosine term: 1
 
 	// brdf term: Lambertian
-	Vector wi = Normalize(vl.lightPos - p);
-	Spectrum brdf = bsdf->f(wo, wi);
+	//Vector wi = Normalize(vl.lightPos - p);
+	Spectrum brdf = bsdf->f(wo, wo);
 
 	Spectrum res = vl.Intensity * brdf * errBound;
 	return res;
@@ -168,12 +170,18 @@ Spectrum PointLightTree::refineLightcuts(const Scene *scene,
 	Spectrum L = contrib;
 	q.push(CutNodeData(err, contrib, 0));
 	int nLeafNodes = 0;
-	while (q.size() + nLeafNodes < MAX_CUT_SIZE) {
+	while (!q.empty() && q.size() + nLeafNodes < MAX_CUT_SIZE) {
 		CutNodeData d = q.top();
 		err = d.errBound;
 		int now = d.lightIdx;
-		if (err.x(0) <= L.x(0) * MAX_ERROR_RATIO && err.x(1) <= L.x(1) * MAX_ERROR_RATIO &&
-				err.x(2) <= L.x(2) * MAX_ERROR_RATIO && d.errBoundValue <= L.y() * MAX_ERROR_RATIO) {
+		if (err.x(0) < L.x(0) * MAX_ERROR_RATIO && err.x(1) < L.x(1) * MAX_ERROR_RATIO &&
+				err.x(2) < L.x(2) * MAX_ERROR_RATIO && d.errBoundValue < L.y() * MAX_ERROR_RATIO) {
+			//Warning("should not be here!\n");
+			//Warning("vl = (%.6f, %.6f, %.6f)\n", nodeData[now].Intensity.x(0),
+			//	nodeData[now].Intensity.x(1), nodeData[now].Intensity.x(2));
+			//Warning("err = (%.6f, %.6f, %.6f)\n", err.x(0), err.x(1), err.x(2));
+			//Log("cut size = %d, error = (%.6f, %.6f, %.6f)\n", q.size() + nLeafNodes,
+			//	err.x(0), err.x(1), err.x(2));
 			break;
 		}
 		else {
@@ -203,7 +211,8 @@ Spectrum PointLightTree::refineLightcuts(const Scene *scene,
 		}
 	}
 	
-	float rgb[3] = { max(L.x(0), 0.f), max(L.x(1), 0.f), max(L.x(2), 0.f) };
-	Spectrum res = Spectrum::FromRGB(rgb);
-	return res;
+	return L;
+	//float rgb[3] = { max(L.x(0), 0.f), max(L.x(1), 0.f), max(L.x(2), 0.f) };
+	//Spectrum res = Spectrum::FromRGB(rgb);
+	//return res;
 }

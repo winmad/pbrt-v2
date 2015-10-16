@@ -196,6 +196,7 @@ void IGIIntegrator::Preprocess(const Scene *scene, const Camera *camera,
 		PointLightNodeData d;
 		
 		// Sampling light sources
+		/*
 		lightNum.resize(nRealLights);
 		lightSampPos.resize(2 * nRealLights);
 		lightSampComp.resize(nRealLights);
@@ -226,6 +227,7 @@ void IGIIntegrator::Preprocess(const Scene *scene, const Camera *camera,
 			d.rayEpsilon = 1e-3;
 			data[i] = d;
 		}
+		*/
 
 		// Add virtual lights
 		int cnt = 0;
@@ -281,6 +283,17 @@ Spectrum IGIIntegrator::Li(const Scene *scene, const Renderer *renderer,
     const Point &p = bsdf->dgShading.p;
     const Normal &n = bsdf->dgShading.nn;
 	if (useLightcuts) {
+		L += UniformSampleAllLights(scene, renderer, arena, p, n,
+			wo, isect.rayEpsilon, ray.time, bsdf, sample, rng,
+			lightSampleOffsets, bsdfSampleOffsets);
+		/*
+		for (int i = 0; i < pointLightTree->nextFreeNode; i++) {
+			if (pointLightTree->nodes[i].splitAxis == 3) {
+				L += EstimateNodeIllumination(scene, renderer, arena, ray, isect, rng, 
+					p, n, wo, bsdf, gLimit, rrThreshold, pointLightTree->nodeData[i]);
+			}
+		}
+		*/
 		L += pointLightTree->refineLightcuts(scene, renderer, arena, 
 			ray, isect, rng, p, n, wo, bsdf, gLimit, rrThreshold);
 		/*
