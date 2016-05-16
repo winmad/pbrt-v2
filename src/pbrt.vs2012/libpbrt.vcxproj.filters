@@ -915,6 +915,9 @@
     <ClInclude Include="..\core\lighttree.h">
       <Filter>Header Files\core</Filter>
     </ClInclude>
+    <ClInclude Include="..\shapes\Wavefront.h">
+      <Filter>Header Files\shapes</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\3rdparty\ilmbase-1.0.2\half.cpp">
@@ -1687,6 +1690,9 @@
     </ClCompile>
     <ClCompile Include="..\core\lighttree.cpp">
       <Filter>Source Files\core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\shapes\Wavefront.cpp">
+      <Filter>Source Files\shapes</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

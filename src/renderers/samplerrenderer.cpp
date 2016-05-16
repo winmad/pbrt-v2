@@ -42,6 +42,9 @@
 #include "camera.h"
 #include "intersection.h"
 
+#include "integrators/igi.h"
+class IGIIntegrator;
+
 static uint32_t hash(char *key, uint32_t len)
 {
     uint32_t hash = 0, i;
@@ -184,7 +187,6 @@ SamplerRenderer::~SamplerRenderer() {
     delete volumeIntegrator;
 }
 
-
 void SamplerRenderer::Render(const Scene *scene) {
     PBRT_FINISHED_PARSING();
     // Allow integrators to do preprocessing for the scene
@@ -215,6 +217,9 @@ void SamplerRenderer::Render(const Scene *scene) {
     for (uint32_t i = 0; i < renderTasks.size(); ++i)
         delete renderTasks[i];
     reporter.Done();
+	float avgCutSize = ((IGIIntegrator*)surfaceIntegrator)->pointLightTree->avgCutSize /
+		((IGIIntegrator*)surfaceIntegrator)->pointLightTree->count;
+	printf("AvgCutSize = %.6f\n", avgCutSize);
     PBRT_FINISHED_RENDERING();
     // Clean up after rendering and store final image
     delete sample;

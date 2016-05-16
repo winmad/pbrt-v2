@@ -99,6 +99,9 @@ public:
 	
 	int MAX_CUT_SIZE;
 	float MAX_ERROR_RATIO;
+
+	float count;
+	float avgCutSize;
 };
 
 

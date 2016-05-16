@@ -16,6 +16,9 @@ PointLightTree::PointLightTree(const vector<PointLightNodeData> &d) {
 	// Set parameters
 	MAX_CUT_SIZE = 300;
 	MAX_ERROR_RATIO = 0.01f;
+
+	count = 0.f;
+	avgCutSize = 0.f;
 }
 
 
@@ -210,6 +213,9 @@ Spectrum PointLightTree::refineLightcuts(const Scene *scene,
 			}
 		}
 	}
+
+	count += 1.f;
+	avgCutSize += q.size() + nLeafNodes;
 	
 	return L;
 	//float rgb[3] = { max(L.x(0), 0.f), max(L.x(1), 0.f), max(L.x(2), 0.f) };

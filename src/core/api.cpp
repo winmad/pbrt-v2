@@ -1,31 +1,23 @@
 
 /*
-    pbrt source code Copyright(c) 1998-2012 Matt Pharr and Greg Humphreys.
+    pbrt source code Copyright(c) 1998-2010 Matt Pharr and Greg Humphreys.
 
     This file is part of pbrt.
 
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are
-    met:
+    pbrt is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.  Note that the text contents of
+    the book "Physically Based Rendering" are *not* licensed under the
+    GNU GPL.
 
-    - Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
+    pbrt is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
 
-    - Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
-    IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
-    TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
-    PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-    HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-    SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-    LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-    DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-    THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
  */
 
@@ -85,7 +77,6 @@
 #include "materials/plastic.h"
 #include "materials/substrate.h"
 #include "materials/subsurface.h"
-#include "materials/shinymetal.h"
 #include "materials/translucent.h"
 #include "materials/uber.h"
 #include "renderers/aggregatetest.h"
@@ -109,6 +100,7 @@
 #include "shapes/paraboloid.h"
 #include "shapes/sphere.h"
 #include "shapes/trianglemesh.h"
+#include "shapes/Wavefront.h"
 #include "textures/bilerp.h"
 #include "textures/checkerboard.h"
 #include "textures/constant.h"
@@ -138,7 +130,7 @@ Options PbrtOptions;
 #define MAX_TRANSFORMS 2
 #define START_TRANSFORM_BITS (1 << 0)
 #define END_TRANSFORM_BITS   (1 << 1)
-#define ALL_TRANSFORMS_BITS  ((1 << MAX_TRANSFORMS) - 1)
+#define ALL_TRANSFORMS_BITS ((1 << MAX_TRANSFORMS) - 1)
 struct TransformSet {
    // TransformSet Public Methods
    Transform &operator[](int i) {
@@ -249,15 +241,12 @@ public:
             *tinv = Transform(Inverse(t));
             cache[t] = std::make_pair(tr, tinv);
             iter = cache.find(t);
-            PBRT_ALLOCATED_CACHED_TRANSFORM();
         }
-        else
-            PBRT_FOUND_CACHED_TRANSFORM();
         if (tCached) *tCached = iter->second.first;
         if (tCachedInverse) *tCachedInverse = iter->second.second;
+        PBRT_ALLOCATED_CACHED_TRANSFORM();
     }
     void Clear() {
-        arena.FreeAll();
         cache.erase(cache.begin(), cache.end());
     }
 private:
@@ -318,11 +307,10 @@ Reference<Shape> MakeShape(const string &name,
         const Transform *object2world, const Transform *world2object,
         bool reverseOrientation, const ParamSet &paramSet) {
     Shape *s = NULL;
-
     if (name == "sphere")
-        s = CreateSphereShape(object2world, world2object,
-                              reverseOrientation, paramSet);
-    // Create remaining _Shape_ types
+        s = CreateSphereShape(object2world, world2object, reverseOrientation,
+                              paramSet);
+    // Create remaining \use{Shape} types
     else if (name == "cylinder")
         s = CreateCylinderShape(object2world, world2object, reverseOrientation,
                                 paramSet);
@@ -340,6 +328,9 @@ Reference<Shape> MakeShape(const string &name,
                                    paramSet);
     else if (name == "trianglemesh")
         s = CreateTriangleMeshShape(object2world, world2object, reverseOrientation,
+                                    paramSet, &graphicsState.floatTextures);
+    else if (name == "wavefront")
+        s = CreateWavefrontShape(object2world, world2object, reverseOrientation,
                                     paramSet, &graphicsState.floatTextures);
     else if (name == "heightfield")
         s = CreateHeightfieldShape(object2world, world2object, reverseOrientation,
@@ -401,12 +392,10 @@ Reference<Material> MakeMaterial(const string &name,
         material = CreateKdSubsurfaceMaterial(mtl2world, mp);
     else if (name == "measured")
         material = CreateMeasuredMaterial(mtl2world, mp);
-    else if (name == "shinymetal")
-        material = CreateShinyMetalMaterial(mtl2world, mp);
     else
         Warning("Material \"%s\" unknown.", name.c_str());
     mp.ReportUnused();
-    if (!material) Error("Unable to create material \"%s\"", name.c_str());
+    if (!material) Error("Unable to create material \"%s\"\n", name.c_str());
     return material;
 }
 
@@ -566,7 +555,9 @@ SurfaceIntegrator *MakeSurfaceIntegrator(const string &name,
 VolumeIntegrator *MakeVolumeIntegrator(const string &name,
         const ParamSet &paramSet) {
     VolumeIntegrator *vi = NULL;
-    if (name == "single")
+    if (name == "null")
+        vi = NULL;
+    else if (name == "single")
         vi = CreateSingleScatteringIntegrator(paramSet);
     else if (name == "emission")
         vi = CreateEmissionVolumeIntegrator(paramSet);
@@ -916,16 +907,16 @@ void pbrtTexture(const string &name, const string &type,
         // Create _float_ texture and store in _floatTextures_
         if (graphicsState.floatTextures.find(name) !=
             graphicsState.floatTextures.end())
-            Info("Texture \"%s\" being redefined", name.c_str());
+            Warning("Texture \"%s\" being redefined", name.c_str());
         WARN_IF_ANIMATED_TRANSFORM("Texture");
         Reference<Texture<float> > ft = MakeFloatTexture(texname,
                                                          curTransform[0], tp);
         if (ft) graphicsState.floatTextures[name] = ft;
     }
-    else if (type == "color" || type == "spectrum")  {
+    else if (type == "color")  {
         // Create _color_ texture and store in _spectrumTextures_
         if (graphicsState.spectrumTextures.find(name) != graphicsState.spectrumTextures.end())
-            Info("Texture \"%s\" being redefined", name.c_str());
+            Warning("Texture \"%s\" being redefined", name.c_str());
         WARN_IF_ANIMATED_TRANSFORM("Texture");
         Reference<Texture<Spectrum> > st = MakeSpectrumTexture(texname,
             curTransform[0], tp);
@@ -1007,7 +998,8 @@ void pbrtShape(const string &name, const ParamSet &params) {
                                  graphicsState.areaLightParams, shape);
         }
         prim = new GeometricPrimitive(shape, mtl, area);
-    } else {
+    }
+    else {
         // Create primitive for animated shape
 
         // Create initial _Shape_ for animated shape
@@ -1049,7 +1041,6 @@ void pbrtShape(const string &name, const ParamSet &params) {
             Warning("Area lights not supported with object instancing");
         renderOptions->currentInstance->push_back(prim);
     }
-    
     else {
         renderOptions->primitives.push_back(prim);
         if (area != NULL) {
@@ -1213,12 +1204,8 @@ Renderer *RenderOptions::MakeRenderer() const {
     if (RendererName == "metropolis") {
         renderer = CreateMetropolisRenderer(RendererParams, camera);
         RendererParams.ReportUnused();
-        // Warn if no light sources are defined
-        if (lights.size() == 0)
-            Warning("No light sources defined in scene; "
-                "possibly rendering a black image.");
     }
-    // Create remaining _Renderer_ types
+    // Create remaining \use{Renderer} types
     else if (RendererName == "createprobes") {
         // Create surface and volume integrators
         SurfaceIntegrator *surfaceIntegrator = MakeSurfaceIntegrator(SurfIntegratorName,
@@ -1229,10 +1216,6 @@ Renderer *RenderOptions::MakeRenderer() const {
         if (!volumeIntegrator) Severe("Unable to create volume integrator.");
         renderer = CreateRadianceProbesRenderer(camera, surfaceIntegrator, volumeIntegrator, RendererParams);
         RendererParams.ReportUnused();
-        // Warn if no light sources are defined
-        if (lights.size() == 0)
-            Warning("No light sources defined in scene; "
-                "possibly rendering a black image.");
     }
     else if (RendererName == "aggregatetest") {
         renderer = CreateAggregateTestRenderer(RendererParams, primitives);
@@ -1244,26 +1227,26 @@ Renderer *RenderOptions::MakeRenderer() const {
         RendererParams.ReportUnused();
     }
     else {
-        if (RendererName != "sampler")
-            Warning("Renderer type \"%s\" unknown.  Using \"sampler\".",
-                    RendererName.c_str());
-        bool visIds = RendererParams.FindOneBool("visualizeobjectids", false);
-        RendererParams.ReportUnused();
-        Sampler *sampler = MakeSampler(SamplerName, SamplerParams, camera->film, camera);
-        if (!sampler) Severe("Unable to create sampler.");
-        // Create surface and volume integrators
-        SurfaceIntegrator *surfaceIntegrator = MakeSurfaceIntegrator(SurfIntegratorName,
-            SurfIntegratorParams);
-        if (!surfaceIntegrator) Severe("Unable to create surface integrator.");
-        VolumeIntegrator *volumeIntegrator = MakeVolumeIntegrator(VolIntegratorName,
-            VolIntegratorParams);
-        if (!volumeIntegrator) Severe("Unable to create volume integrator.");
-        renderer = new SamplerRenderer(sampler, camera, surfaceIntegrator,
-                                       volumeIntegrator, visIds);
-        // Warn if no light sources are defined
-        if (lights.size() == 0)
-            Warning("No light sources defined in scene; "
-                "possibly rendering a black image.");
+		if (RendererName != "sampler")
+			Warning("Renderer type \"%s\" unknown.  Using \"sampler\".",
+			RendererName.c_str());
+		bool visIds = RendererParams.FindOneBool("visualizeobjectids", false);
+		RendererParams.ReportUnused();
+		Sampler *sampler = MakeSampler(SamplerName, SamplerParams, camera->film, camera);
+		if (!sampler) Severe("Unable to create sampler.");
+		// Create surface and volume integrators
+		SurfaceIntegrator *surfaceIntegrator = MakeSurfaceIntegrator(SurfIntegratorName,
+			SurfIntegratorParams);
+		if (!surfaceIntegrator) Severe("Unable to create surface integrator.");
+		VolumeIntegrator *volumeIntegrator = MakeVolumeIntegrator(VolIntegratorName,
+			VolIntegratorParams);
+		if (!volumeIntegrator) Severe("Unable to create volume integrator.");
+		renderer = new SamplerRenderer(sampler, camera, surfaceIntegrator,
+			volumeIntegrator, visIds);
+		// Warn if no light sources are defined
+		if (lights.size() == 0)
+			Warning("No light sources defined in scene; "
+			"possibly rendering a black image.");
     }
     return renderer;
 }

@@ -84,7 +84,7 @@ public:
         bsdfSampleOffsets = NULL;
 		pointLightTree = NULL;
     }
-private:
+public:
     // IGIIntegrator Private Data
 
     // Declare sample parameters for light source sampling
